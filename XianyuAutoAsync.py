@@ -37,6 +37,11 @@ class AutoReplyPauseManager:
             logger.error(f"获取账号 {cookie_id} 暂停时间失败: {e}，使用默认10分钟")
             pause_minutes = 10
 
+        # 如果暂停时间为0，表示不暂停
+        if pause_minutes == 0:
+            logger.info(f"【{cookie_id}】检测到手动发出消息，但暂停时间设置为0，不暂停自动回复")
+            return
+
         pause_duration_seconds = pause_minutes * 60
         pause_until = time.time() + pause_duration_seconds
         self.paused_chats[chat_id] = pause_until
@@ -122,6 +127,10 @@ class XianyuLive:
     # 商品详情缓存（24小时有效）
     _item_detail_cache = {}  # {item_id: {'detail': str, 'timestamp': float}}
     _item_detail_cache_lock = asyncio.Lock()
+
+    # 类级别的实例管理字典，用于API调用
+    _instances = {}  # {cookie_id: XianyuLive实例}
+    _instances_lock = asyncio.Lock()
     
     def _safe_str(self, e):
         """安全地将异常转换为字符串"""
@@ -206,14 +215,50 @@ class XianyuLive:
         self.last_qr_cookie_refresh_time = 0  # 记录上次扫码登录Cookie刷新时间
         self.qr_cookie_refresh_cooldown = 600  # 扫码登录Cookie刷新后的冷却时间：10分钟
 
-
+        # 消息接收标识 - 用于控制Cookie刷新
+        self.last_message_received_time = 0  # 记录上次收到消息的时间
+        self.message_cookie_refresh_cooldown = 300  # 收到消息后5分钟内不执行Cookie刷新
 
         # WebSocket连接监控
         self.connection_failures = 0  # 连续连接失败次数
         self.max_connection_failures = 5  # 最大连续失败次数
         self.last_successful_connection = 0  # 上次成功连接时间
 
+        # 注册实例到类级别字典（用于API调用）
+        self._register_instance()
 
+    def _register_instance(self):
+        """注册当前实例到类级别字典"""
+        try:
+            # 使用同步方式注册，避免在__init__中使用async
+            XianyuLive._instances[self.cookie_id] = self
+            logger.debug(f"【{self.cookie_id}】实例已注册到全局字典")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】注册实例失败: {self._safe_str(e)}")
+
+    def _unregister_instance(self):
+        """从类级别字典中注销当前实例"""
+        try:
+            if self.cookie_id in XianyuLive._instances:
+                del XianyuLive._instances[self.cookie_id]
+                logger.debug(f"【{self.cookie_id}】实例已从全局字典中注销")
+        except Exception as e:
+            logger.error(f"【{self.cookie_id}】注销实例失败: {self._safe_str(e)}")
+
+    @classmethod
+    def get_instance(cls, cookie_id: str):
+        """获取指定cookie_id的XianyuLive实例"""
+        return cls._instances.get(cookie_id)
+
+    @classmethod
+    def get_all_instances(cls):
+        """获取所有活跃的XianyuLive实例"""
+        return dict(cls._instances)
+
+    @classmethod
+    def get_instance_count(cls):
+        """获取当前活跃实例数量"""
+        return len(cls._instances)
 
     def is_auto_confirm_enabled(self) -> bool:
         """检查当前账号是否启用自动确认发货"""
@@ -3510,8 +3555,15 @@ class XianyuLive:
 
                 current_time = time.time()
                 if current_time - self.last_cookie_refresh_time >= self.cookie_refresh_interval:
+                    # 检查是否在消息接收后的冷却时间内
+                    time_since_last_message = current_time - self.last_message_received_time
+                    if time_since_last_message < self.message_cookie_refresh_cooldown:
+                        remaining_time = self.message_cookie_refresh_cooldown - time_since_last_message
+                        remaining_minutes = int(remaining_time // 60)
+                        remaining_seconds = int(remaining_time % 60)
+                        logger.debug(f"【{self.cookie_id}】收到消息后冷却中，还需等待 {remaining_minutes}分{remaining_seconds}秒 才能执行Cookie刷新")
                     # 检查是否已有Cookie刷新任务在执行
-                    if self.cookie_refresh_running:
+                    elif self.cookie_refresh_running:
                         logger.debug(f"【{self.cookie_id}】Cookie刷新任务已在执行中，跳过本次触发")
                     else:
                         logger.info(f"【{self.cookie_id}】开始执行Cookie刷新任务...")
@@ -3576,6 +3628,10 @@ class XianyuLive:
 
             # 清除运行状态
             self.cookie_refresh_running = False
+
+            # 清空消息接收标志，允许下次正常执行Cookie刷新
+            self.last_message_received_time = 0
+            logger.debug(f"【{self.cookie_id}】Cookie刷新完成，已清空消息接收标志")
 
 
 
@@ -4488,6 +4544,10 @@ class XianyuLive:
                 logger.debug(f"消息内容: {message}")
                 return
 
+            # 【消息接收标识】记录收到消息的时间，用于控制Cookie刷新
+            self.last_message_received_time = time.time()
+            logger.debug(f"【{self.cookie_id}】收到消息，更新消息接收时间标识")
+
             # 【优先处理】尝试获取订单ID并获取订单详情
             order_id = None
             try:
@@ -4990,6 +5050,10 @@ class XianyuLive:
             if self.cookie_refresh_task:
                 self.cookie_refresh_task.cancel()
             await self.close_session()  # 确保关闭session
+
+            # 从全局实例字典中注销当前实例
+            self._unregister_instance()
+            logger.info(f"【{self.cookie_id}】XianyuLive主程序已完全退出")
 
     async def get_item_list_info(self, page_number=1, page_size=20, retry_count=0):
         """获取商品信息，自动处理token失效的情况

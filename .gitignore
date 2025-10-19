@@ -286,17 +286,6 @@ build/
 *.dmg
 *.img
 
-# ==================== 项目特定新增文件类型 ====================
-# 测试和示例文件
-test_*.py
-*_test.py
-example_*.py
-*_example.py
-demo_*.py
-*_demo.py
-fix_*.py
-*_fix.py
-
 # 文档文件（除了README.md）
 *.md
 !README.md
@@ -312,24 +301,6 @@ fix_*.py
 config.*.yml
 !global_config.yml
 
-# 运行时生成的文件
-*.pid
-*.lock
-*.sock
-*.port
-
-# 性能和调试文件
-*.profile
-*.pstats
-*.trace
-
-# 编译和构建产物
-*.whl
-*.egg
-*.tar.gz
-build/
-dist/
-
 # 开发工具配置
 .editorconfig
 .flake8
@@ -337,30 +308,6 @@ dist/
 pyproject.toml
 setup.cfg
 tox.ini
-
-# 容器相关
-.dockerignore
-docker-compose.*.yml
-!docker-compose.yml
-!docker-compose-cn.yml
-
-# 安全相关
-*.secret
-*.token
-*.auth
-secrets/
-credentials/
-
-# 监控和日志
-*.access.log
-*.error.log
-*.audit.log
-monitoring/
-
-# 第三方服务配置
-.env
-.env.*
-!.env.example
 
 # 数据导出文件
 export_*.csv
@@ -376,6 +323,7 @@ temp_downloads/
 .playwright/
 playwright-report/
 test-results/
+playwright/.browsers/
 
 # 系统服务文件
 *.service
@@ -386,3 +334,42 @@ systemd/
 archive/
 old/
 deprecated/
+
+# 项目特定新增规则
+# 轨迹历史文件
+trajectory_history/*.json
+!trajectory_history/.gitkeep
+
+# 统计服务器相关（保留核心文件，只忽略数据文件）
+user_stats.txt
+stats.log
+
+# 加密相关文件（保留项目核心文件，只忽略临时解密文件）
+# *_decrypted.py  # 注释掉，因为项目中有重要的解密文件
+# *_ultra.py      # 注释掉，因为项目中有重要的ultra文件
+
+# 临时脚本文件
+temp_*.py
+quick_*.py
+fix_*.py
+
+# ==================== 项目特定数据库和日志 ====================
+# 数据库文件
+xianyu_data.db
+xianyu_data_backup_*.db
+user_stats.db
+
+# 实时日志文件
+realtime.log
+
+# PHP测试文件
+php/
+
+# 检查脚本
+check_disk_usage.py
+
+# 环境配置文件
+.env
+.env.*
+!.env.example
+.env.docker
